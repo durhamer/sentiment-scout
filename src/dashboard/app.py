@@ -1,5 +1,11 @@
 """Streamlit dashboard for Sentiment Scout."""
 
+import sys
+from pathlib import Path
+
+# Ensure project root is on sys.path when running via `streamlit run src/dashboard/app.py`
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
