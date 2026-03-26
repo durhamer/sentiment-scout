@@ -6,6 +6,9 @@ from pathlib import Path
 # Ensure project root is on sys.path when running via `streamlit run src/dashboard/app.py`
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+import requests
+from collections import Counter
+
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
@@ -46,20 +49,70 @@ def init_components():
 config = load_config()
 components = init_components()
 
+
+def fetch_recommended_subreddits(keywords: list, top_n: int = 3) -> list:
+    """Search Reddit r/all for keywords and return top subreddits by post count."""
+    counter = Counter()
+    headers = {"User-Agent": "sentiment-scout/0.1"}
+    for keyword in keywords[:3]:
+        keyword = keyword.strip()
+        if not keyword:
+            continue
+        try:
+            resp = requests.get(
+                "https://www.reddit.com/r/all/search.json",
+                params={"q": keyword, "sort": "relevance", "limit": 100, "t": "month"},
+                headers=headers,
+                timeout=10,
+            )
+            resp.raise_for_status()
+            for child in resp.json().get("data", {}).get("children", []):
+                sub = child.get("data", {}).get("subreddit")
+                if sub:
+                    counter[sub] += 1
+        except Exception:
+            continue
+    return [sub for sub, _ in counter.most_common(top_n)]
+
+
 # ── Sidebar ───────────────────────────────────────────────────────
+
+# Initialise subreddit input state once
+if "subreddits_input" not in st.session_state:
+    st.session_state["subreddits_input"] = "\n".join(
+        config["monitoring"]["reddit"]["subreddits"]
+    )
+
+# Apply pending recommendation before the widget renders
+if st.session_state.get("_pending_subreddits"):
+    st.session_state["subreddits_input"] = st.session_state.pop("_pending_subreddits")
 
 with st.sidebar:
     st.header("⚙️ 設定")
 
-    keywords = st.text_area(
+    keywords_raw = st.text_area(
         "監控關鍵字（每行一個）",
         value="\n".join(config["monitoring"]["keywords"]),
-    ).strip().split("\n")
+    )
+    keywords = [k.strip() for k in keywords_raw.strip().split("\n") if k.strip()]
 
-    subreddits = st.text_area(
+    if st.button("🎯 推薦 Subreddits", use_container_width=True):
+        if not keywords:
+            st.warning("請先輸入關鍵字！")
+        else:
+            with st.spinner("正在分析最相關的社群..."):
+                recommended = fetch_recommended_subreddits(keywords)
+            if recommended:
+                st.session_state["_pending_subreddits"] = "\n".join(recommended)
+                st.rerun()
+            else:
+                st.warning("找不到推薦的 subreddits，請手動輸入。")
+
+    subreddits_raw = st.text_area(
         "Subreddits（每行一個）",
-        value="\n".join(config["monitoring"]["reddit"]["subreddits"]),
-    ).strip().split("\n")
+        key="subreddits_input",
+    )
+    subreddits = [s.strip() for s in subreddits_raw.strip().split("\n") if s.strip()]
 
     sort_by = st.selectbox("排序", ["hot", "new", "rising", "top", "relevance"])
     time_filter = st.selectbox("時間範圍", ["day", "week", "month", "year", "all"])
