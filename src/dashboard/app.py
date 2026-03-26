@@ -350,6 +350,16 @@ if fetch_button:
 
 # ── Display results ───────────────────────────────────────────────
 
+# Track which post expanders should stay open across reruns
+if "expanded_posts" not in st.session_state:
+    st.session_state["expanded_posts"] = set()
+if "post_drafts" not in st.session_state:
+    st.session_state["post_drafts"] = {}
+
+def mark_post_expanded(post_id):
+    """Callback to mark a post expander as expanded before rerun."""
+    st.session_state["expanded_posts"].add(post_id)
+
 if "analyzed" in st.session_state and st.session_state["analyzed"]:
     analyzed = st.session_state["analyzed"]
 
@@ -397,10 +407,13 @@ if "analyzed" in st.session_state and st.session_state["analyzed"]:
         else:
             indicator = "🟡"
 
+        is_expanded = post.id in st.session_state["expanded_posts"]
+
         with st.expander(
             f"{indicator} [{post.subreddit}] {post.title[:80]}  "
             f"(⬆{post.score} · 💬{analysis['num_comments_analyzed']} · "
-            f"風向 {polarity:+.2f})"
+            f"風向 {polarity:+.2f})",
+            expanded=is_expanded,
         ):
             st.markdown(f"**[原文連結]({post.url})**")
 
@@ -442,6 +455,8 @@ if "analyzed" in st.session_state and st.session_state["analyzed"]:
                     current_persona_names,
                     index=default_persona_idx,
                     key=f"persona_{post.id}",
+                    on_change=mark_post_expanded,
+                    args=(post.id,),
                 )
                 post_persona_id = current_persona_ids[current_persona_names.index(post_persona_name)]
 
@@ -452,6 +467,8 @@ if "analyzed" in st.session_state and st.session_state["analyzed"]:
                         for c in (analysis["top_positive"] + analysis["top_negative"])[:5]
                     ],
                     key=f"target_{post.id}",
+                    on_change=mark_post_expanded,
+                    args=(post.id,),
                 )
 
                 if st.button("產生草稿", key=f"draft_{post.id}"):
@@ -480,10 +497,18 @@ if "analyzed" in st.session_state and st.session_state["analyzed"]:
                             discussion_context=context,
                         )
 
+                    # Store draft and mark expander as open, then rerun so the
+                    # expander renders as expanded=True on the next pass.
+                    st.session_state["post_drafts"][post.id] = draft.draft_text
+                    st.session_state["expanded_posts"].add(post.id)
+                    st.rerun()
+
+                # Always render stored draft (persists across reruns)
+                if post.id in st.session_state["post_drafts"]:
                     st.success("草稿已產生！請審閱後自行決定是否使用。")
                     st.text_area(
                         "📋 草稿內容（可複製修改）",
-                        value=draft.draft_text,
+                        value=st.session_state["post_drafts"][post.id],
                         height=200,
                         key=f"draft_text_{post.id}",
                     )
