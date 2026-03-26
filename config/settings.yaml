@@ -1,0 +1,46 @@
+# ===========================
+# Sentiment Scout 設定檔
+# ===========================
+
+# 監控目標
+monitoring:
+  # 要追蹤的關鍵字（支援多組）
+  keywords:
+    - "AI"
+    - "artificial intelligence"
+
+  # Reddit 特定設定
+  reddit:
+    subreddits:
+      - "technology"
+      - "artificial"
+      - "taiwan"
+    sort_by: "relevance"    # relevance, top, new, comments
+    time_filter: "week"     # hour, day, week, month, year, all
+    max_posts_per_sub: 25
+    include_comments: true
+    max_comments_per_post: 50
+
+# 分析設定
+analysis:
+  sentiment_model: "textblob"  # textblob | transformers
+  # transformers 模型（如果選 transformers）
+  transformers_model: "lxyuan/distilbert-base-multilingual-cased-sentiments-student"
+  # 摘要用的主題數量
+  num_topics: 5
+
+# 草稿產生器設定
+drafter:
+  model: "claude-sonnet-4-20250514"
+  max_tokens: 500
+  # 語言：auto 會根據原文判斷
+  language: "auto"
+
+# 儲存
+storage:
+  db_path: "data/sentinel.db"
+
+# 儀表板
+dashboard:
+  port: 8501
+  refresh_interval_minutes: 30

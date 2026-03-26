@@ -1,0 +1,23 @@
+# HTTP requests (Reddit public JSON endpoints, no API key needed)
+requests>=2.31.0
+
+# NLP / Sentiment
+textblob>=0.18.0
+transformers>=4.40.0
+torch>=2.0.0
+
+# LLM for drafting
+anthropic>=0.25.0
+
+# Dashboard
+streamlit>=1.35.0
+plotly>=5.22.0
+
+# Data
+sqlalchemy>=2.0.0
+pyyaml>=6.0.0
+python-dotenv>=1.0.0
+
+# Utilities
+rich>=13.7.0
+click>=8.1.0
