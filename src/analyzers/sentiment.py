@@ -27,6 +27,28 @@ class SentimentResult:
         return self.subjectivity > 0.5
 
 
+class PttSentimentResult:
+    """Sentiment result computed directly from PTT 推/噓/→ tags."""
+
+    def __init__(self, push: int, boo: int, arrow: int):
+        self.push = push
+        self.boo = boo
+        self.arrow = arrow
+        total = push + boo + arrow or 1
+        self.positive_pct = round(push / total * 100, 1)
+        self.negative_pct = round(boo / total * 100, 1)
+        self.neutral_pct = round(arrow / total * 100, 1)
+        # Normalised polarity: (推 - 噓) / total, range [-1, 1]
+        self.polarity = round((push - boo) / total, 3)
+
+        if self.polarity > 0.1:
+            self.label = SentimentLabel.POSITIVE
+        elif self.polarity < -0.1:
+            self.label = SentimentLabel.NEGATIVE
+        else:
+            self.label = SentimentLabel.NEUTRAL
+
+
 class SentimentAnalyzer:
     """Analyze sentiment of text using TextBlob (lightweight, no GPU needed)."""
 
@@ -121,4 +143,104 @@ class SentimentAnalyzer:
                 key=lambda x: x["score"],
                 reverse=True,
             )[:3],
+        }
+
+    def analyze_ptt_post(self, post: Post) -> dict:
+        """
+        Analyze a PTT post using push/boo/arrow tags instead of NLP.
+
+        PTT comments carry explicit sentiment via push-tag:
+          推 → positive, 噓 → negative, → → neutral
+
+        Returns the same dict structure as analyze_post() for dashboard compatibility.
+        """
+        push_comments = []
+        boo_comments = []
+        arrow_comments = []
+
+        for comment in post.comments:
+            tag = comment.metadata.get("push_tag", "→")
+            if tag == "推":
+                push_comments.append(comment)
+            elif tag == "噓":
+                boo_comments.append(comment)
+            else:
+                arrow_comments.append(comment)
+
+        result = PttSentimentResult(
+            push=len(push_comments),
+            boo=len(boo_comments),
+            arrow=len(arrow_comments),
+        )
+
+        total = len(post.comments) or 1
+
+        # Build comment detail list (keeps dashboard compatibility)
+        comment_details = []
+        for comment in post.comments:
+            tag = comment.metadata.get("push_tag", "→")
+            if tag == "推":
+                label = SentimentLabel.POSITIVE
+                polarity = 1.0
+            elif tag == "噓":
+                label = SentimentLabel.NEGATIVE
+                polarity = -1.0
+            else:
+                label = SentimentLabel.NEUTRAL
+                polarity = 0.0
+
+            sent = SentimentResult(
+                text_preview=comment.body[:100],
+                label=label,
+                polarity=polarity,
+                subjectivity=1.0,  # PTT push tags are explicit opinions
+            )
+            comment_details.append({
+                "comment_id": comment.id,
+                "author": comment.author,
+                "score": comment.score,
+                "sentiment": sent,
+                "push_tag": tag,
+            })
+
+        top_positive = sorted(
+            [c for c in comment_details if c["sentiment"].label == SentimentLabel.POSITIVE],
+            key=lambda x: x["score"],
+            reverse=True,
+        )[:3]
+        top_negative = sorted(
+            [c for c in comment_details if c["sentiment"].label == SentimentLabel.NEGATIVE],
+            key=lambda x: x["score"],
+            reverse=True,
+        )[:3]
+
+        return {
+            "post_id": post.id,
+            "post_title": post.title,
+            "post_url": post.url,
+            "post_sentiment": SentimentResult(
+                text_preview=post.title[:100],
+                label=result.label,
+                polarity=result.polarity,
+                subjectivity=1.0,
+            ),
+            "num_comments_analyzed": len(post.comments),
+            "distribution": {
+                "positive": result.push,
+                "negative": result.boo,
+                "neutral": result.arrow,
+                "positive_pct": result.positive_pct,
+                "negative_pct": result.negative_pct,
+                "neutral_pct": result.neutral_pct,
+            },
+            "weighted_avg_polarity": result.polarity,
+            "comment_details": comment_details,
+            "top_positive": top_positive,
+            "top_negative": top_negative,
+            # PTT-specific extras
+            "push_summary": {
+                "推": result.push,
+                "噓": result.boo,
+                "→": result.arrow,
+            },
         }

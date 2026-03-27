@@ -9,6 +9,15 @@ monitoring:
     - "AI"
     - "artificial intelligence"
 
+  # PTT 特定設定
+  ptt:
+    boards:
+      - "Gossiping"
+      - "Tech_Job"
+      - "Stock"
+    max_posts_per_board: 25
+    max_pages: 3
+
   # Reddit 特定設定
   reddit:
     subreddits:

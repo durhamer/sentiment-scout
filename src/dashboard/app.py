@@ -15,6 +15,7 @@ import plotly.graph_objects as go
 import yaml
 
 from src.collectors.reddit import RedditCollector
+from src.collectors.ptt import PttCollector
 from src.analyzers.sentiment import SentimentAnalyzer
 from src.drafter.reply_drafter import ReplyDrafter
 from src.storage.db import Storage
@@ -42,7 +43,8 @@ def load_config():
 @st.cache_resource
 def init_components():
     return {
-        "collector": RedditCollector(),
+        "reddit_collector": RedditCollector(),
+        "ptt_collector": PttCollector(),
         "analyzer": SentimentAnalyzer(),
         "drafter": ReplyDrafter(),
         "storage": Storage(),
@@ -92,6 +94,10 @@ if "subreddits_input" not in st.session_state:
     st.session_state["subreddits_input"] = "\n".join(
         config["monitoring"]["reddit"]["subreddits"]
     )
+if "ptt_boards_input" not in st.session_state:
+    st.session_state["ptt_boards_input"] = "\n".join(
+        config["monitoring"]["ptt"]["boards"]
+    )
 
 # Apply pending recommendation before the widget renders
 if st.session_state.get("_pending_subreddits"):
@@ -100,33 +106,50 @@ if st.session_state.get("_pending_subreddits"):
 with st.sidebar:
     st.header("⚙️ 設定")
 
+    platform = st.selectbox("平台", ["Reddit", "PTT", "全部"], index=0)
+
     keywords_raw = st.text_area(
         "監控關鍵字（每行一個）",
         value="\n".join(config["monitoring"]["keywords"]),
     )
     keywords = [k.strip() for k in keywords_raw.strip().split("\n") if k.strip()]
 
-    if st.button("🎯 推薦 Subreddits", use_container_width=True):
-        if not keywords:
-            st.warning("請先輸入關鍵字！")
-        else:
-            with st.spinner("正在分析最相關的社群..."):
-                recommended = fetch_recommended_subreddits(keywords)
-            if recommended:
-                st.session_state["_pending_subreddits"] = "\n".join(recommended)
-                st.rerun()
+    if platform in ("Reddit", "全部"):
+        if st.button("🎯 推薦 Subreddits", use_container_width=True):
+            if not keywords:
+                st.warning("請先輸入關鍵字！")
             else:
-                st.warning("找不到推薦的 subreddits，請手動輸入。")
+                with st.spinner("正在分析最相關的社群..."):
+                    recommended = fetch_recommended_subreddits(keywords)
+                if recommended:
+                    st.session_state["_pending_subreddits"] = "\n".join(recommended)
+                    st.rerun()
+                else:
+                    st.warning("找不到推薦的 subreddits，請手動輸入。")
 
-    subreddits_raw = st.text_area(
-        "Subreddits（每行一個）",
-        key="subreddits_input",
-    )
-    subreddits = [s.strip() for s in subreddits_raw.strip().split("\n") if s.strip()]
+        subreddits_raw = st.text_area(
+            "Subreddits（每行一個）",
+            key="subreddits_input",
+        )
+        subreddits = [s.strip() for s in subreddits_raw.strip().split("\n") if s.strip()]
 
-    sort_by = st.selectbox("排序", ["hot", "new", "rising", "top", "relevance"])
-    time_filter = st.selectbox("時間範圍", ["day", "week", "month", "year", "all"])
-    max_posts = st.slider("每個 sub 最多幾篇", 5, 50, 25)
+        sort_by = st.selectbox("排序", ["hot", "new", "rising", "top", "relevance"])
+        time_filter = st.selectbox("時間範圍", ["day", "week", "month", "year", "all"])
+    else:
+        subreddits = []
+        sort_by = "relevance"
+        time_filter = "week"
+
+    if platform in ("PTT", "全部"):
+        ptt_boards_raw = st.text_area(
+            "PTT 看板（每行一個）",
+            key="ptt_boards_input",
+        )
+        ptt_boards = [b.strip() for b in ptt_boards_raw.strip().split("\n") if b.strip()]
+    else:
+        ptt_boards = []
+
+    max_posts = st.slider("每個來源最多幾篇", 5, 50, 25)
 
     fetch_button = st.button("🔍 開始搜尋", type="primary", use_container_width=True)
 
@@ -315,36 +338,56 @@ with st.sidebar:
 # ── Main content ──────────────────────────────────────────────────
 
 if fetch_button:
-    with st.spinner("正在從 Reddit 收集資料..."):
-        posts = components["collector"].search(
-            keywords=keywords,
-            subreddits=subreddits,
-            sort=sort_by,
-            time_filter=time_filter,
-            max_posts=max_posts,
-        )
+    all_posts = []
 
-    if not posts:
+    if platform in ("Reddit", "全部") and subreddits:
+        with st.spinner("正在從 Reddit 收集資料..."):
+            reddit_posts = components["reddit_collector"].search(
+                keywords=keywords,
+                subreddits=subreddits,
+                sort=sort_by,
+                time_filter=time_filter,
+                max_posts=max_posts,
+            )
+            all_posts.extend(reddit_posts)
+
+    if platform in ("PTT", "全部") and ptt_boards:
+        with st.spinner("正在從 PTT 收集資料..."):
+            ptt_posts = components["ptt_collector"].search(
+                keywords=keywords,
+                boards=ptt_boards,
+                max_posts=max_posts,
+            )
+            all_posts.extend(ptt_posts)
+
+    if not all_posts:
         st.warning("沒有找到相關貼文。試試調整關鍵字或時間範圍。")
     else:
-        st.success(f"找到 {len(posts)} 篇貼文")
+        st.success(f"找到 {len(all_posts)} 篇貼文")
 
         # Fetch comments and analyze
         analyzed = []
         progress = st.progress(0)
-        for i, post in enumerate(posts):
-            with st.spinner(f"分析中... ({i+1}/{len(posts)})"):
+        for i, post in enumerate(all_posts):
+            with st.spinner(f"分析中... ({i+1}/{len(all_posts)})"):
                 try:
-                    full_post = components["collector"].get_post_with_comments(
-                        post.id,
-                        max_comments=config["monitoring"]["reddit"].get("max_comments_per_post", 50),
-                    )
-                    analysis = components["analyzer"].analyze_post(full_post)
+                    if post.platform == "ptt":
+                        full_post = components["ptt_collector"].get_post_with_comments(
+                            post.url,
+                            max_comments=200,
+                        )
+                        analysis = components["analyzer"].analyze_ptt_post(full_post)
+                    else:
+                        full_post = components["reddit_collector"].get_post_with_comments(
+                            post.id,
+                            max_comments=config["monitoring"]["reddit"].get("max_comments_per_post", 50),
+                        )
+                        analysis = components["analyzer"].analyze_post(full_post)
                     analyzed.append((full_post, analysis))
                     components["storage"].save_post(full_post, analysis)
                 except Exception as e:
                     st.error(f"分析 {post.title[:50]} 時出錯: {e}")
-            progress.progress((i + 1) / len(posts))
+            progress.progress((i + 1) / len(all_posts))
 
         st.session_state["analyzed"] = analyzed
 

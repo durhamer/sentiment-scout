@@ -1,5 +1,6 @@
-# HTTP requests (Reddit public JSON endpoints, no API key needed)
+# HTTP requests (Reddit public JSON endpoints + PTT web scraping)
 requests>=2.31.0
+beautifulsoup4>=4.12.0
 
 # NLP / Sentiment
 textblob>=0.18.0
