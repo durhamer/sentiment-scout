@@ -16,6 +16,7 @@ import yaml
 
 from src.collectors.reddit import RedditCollector
 from src.collectors.ptt import PttCollector
+from src.collectors.threads import ThreadsCollector
 from src.analyzers.sentiment import SentimentAnalyzer
 from src.drafter.reply_drafter import ReplyDrafter
 from src.storage.db import Storage
@@ -42,13 +43,18 @@ def load_config():
 
 @st.cache_resource
 def init_components():
-    return {
+    components = {
         "reddit_collector": RedditCollector(),
         "ptt_collector": PttCollector(),
         "analyzer": SentimentAnalyzer(),
         "drafter": ReplyDrafter(),
         "storage": Storage(),
     }
+    try:
+        components["threads_collector"] = ThreadsCollector()
+    except ValueError:
+        components["threads_collector"] = None
+    return components
 
 config = load_config()
 components = init_components()
@@ -106,7 +112,7 @@ if st.session_state.get("_pending_subreddits"):
 with st.sidebar:
     st.header("⚙️ 設定")
 
-    platform = st.selectbox("平台", ["Reddit", "PTT", "全部"], index=0)
+    platform = st.selectbox("平台", ["Reddit", "PTT", "Threads", "全部"], index=0)
 
     keywords_raw = st.text_area(
         "監控關鍵字（每行一個）",
@@ -148,6 +154,12 @@ with st.sidebar:
         ptt_boards = [b.strip() for b in ptt_boards_raw.strip().split("\n") if b.strip()]
     else:
         ptt_boards = []
+
+    if platform == "Threads":
+        if components["threads_collector"] is None:
+            st.warning(
+                "Threads 尚未設定。請在 .env 加入 THREADS_ACCESS_TOKEN 和 THREADS_USER_ID。"
+            )
 
     max_posts = st.slider("每個來源最多幾篇", 5, 50, 25)
 
@@ -360,6 +372,23 @@ if fetch_button:
             )
             all_posts.extend(ptt_posts)
 
+    if platform == "Threads":
+        if components["threads_collector"] is None:
+            st.error("Threads 尚未設定，請先在 .env 加入 THREADS_ACCESS_TOKEN 和 THREADS_USER_ID。")
+        else:
+            with st.spinner("正在從 Threads 收集資料..."):
+                threads_posts = components["threads_collector"].search(
+                    keywords=keywords,
+                    max_posts=max_posts,
+                )
+                if not threads_posts:
+                    st.info(
+                        "Threads 搜尋結果為空。"
+                        "這可能是因為 threads_keyword_search 尚未通過 App Review，"
+                        "目前只能搜尋到自己帳號的貼文。"
+                    )
+                all_posts.extend(threads_posts)
+
     if not all_posts:
         st.warning("沒有找到相關貼文。試試調整關鍵字或時間範圍。")
     else:
@@ -377,6 +406,12 @@ if fetch_button:
                             max_comments=200,
                         )
                         analysis = components["analyzer"].analyze_ptt_post(full_post)
+                    elif post.platform == "threads":
+                        full_post = components["threads_collector"].get_post_with_comments(
+                            post.id,
+                            max_comments=config["monitoring"]["threads"].get("max_replies_per_post", 50),
+                        )
+                        analysis = components["analyzer"].analyze_post(full_post)
                     else:
                         full_post = components["reddit_collector"].get_post_with_comments(
                             post.id,

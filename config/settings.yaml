@@ -30,6 +30,13 @@ monitoring:
     include_comments: true
     max_comments_per_post: 50
 
+  # Threads 特定設定
+  threads:
+    max_posts: 25
+    max_replies_per_post: 50
+    # 注意：threads_keyword_search 尚未通過 App Review 前，
+    # 搜尋結果只會回傳自己帳號的貼文。
+
 # 分析設定
 analysis:
   sentiment_model: "textblob"  # textblob | transformers
