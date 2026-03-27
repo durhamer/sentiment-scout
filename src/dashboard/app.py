@@ -429,7 +429,7 @@ if "analyzed" in st.session_state and st.session_state["analyzed"]:
         hole=0.4,
     )])
     fig.update_layout(height=350, margin=dict(t=20, b=20))
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, key="overview_pie_chart")
 
     # ── Per-post breakdown ──
     st.subheader("📋 各貼文風向")
@@ -451,6 +451,8 @@ if "analyzed" in st.session_state and st.session_state["analyzed"]:
             indicator = "🟡"
 
         is_expanded = post.id in st.session_state["expanded_posts"]
+        # Sanitize post.id for use as widget key (PTT IDs contain '/' and '.')
+        pid = post.id.replace("/", "_").replace(".", "_")
 
         with st.expander(
             f"{indicator} [{post.subreddit}] {post.title[:80]}  "
@@ -468,7 +470,7 @@ if "analyzed" in st.session_state and st.session_state["analyzed"]:
                 marker_color=["#2ecc71", "#95a5a6", "#e74c3c"],
             )])
             bar_fig.update_layout(height=150, margin=dict(l=0, r=0, t=0, b=0))
-            st.plotly_chart(bar_fig, use_container_width=True)
+            st.plotly_chart(bar_fig, use_container_width=True, key=f"bar_{pid}")
 
             # Top comments
             if analysis["top_positive"]:
@@ -497,7 +499,7 @@ if "analyzed" in st.session_state and st.session_state["analyzed"]:
                     "使用人物",
                     current_persona_names,
                     index=default_persona_idx,
-                    key=f"persona_{post.id}",
+                    key=f"persona_{pid}",
                     on_change=mark_post_expanded,
                     args=(post.id,),
                 )
@@ -509,12 +511,12 @@ if "analyzed" in st.session_state and st.session_state["analyzed"]:
                         f"留言: {c['sentiment'].text_preview[:60]}..."
                         for c in (analysis["top_positive"] + analysis["top_negative"])[:5]
                     ],
-                    key=f"target_{post.id}",
+                    key=f"target_{pid}",
                     on_change=mark_post_expanded,
                     args=(post.id,),
                 )
 
-                if st.button("產生草稿", key=f"draft_{post.id}"):
+                if st.button("產生草稿", key=f"draft_{pid}"):
                     target_comment = None
                     if reply_target != "貼文本身":
                         all_top = analysis["top_positive"] + analysis["top_negative"]
@@ -553,7 +555,7 @@ if "analyzed" in st.session_state and st.session_state["analyzed"]:
                         "📋 草稿內容（可複製修改）",
                         value=st.session_state["post_drafts"][post.id],
                         height=200,
-                        key=f"draft_text_{post.id}",
+                        key=f"draft_text_{pid}",
                     )
                     st.warning("⚠ 這是 AI 產生的草稿。請自行審閱、修改後再手動發佈。")
 
